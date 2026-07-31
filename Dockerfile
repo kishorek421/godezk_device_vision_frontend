@@ -3,7 +3,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+# npm install does not require a package-lock.json; switch back to npm ci when one is added
+RUN npm install
 
 COPY . .
 RUN npm run build

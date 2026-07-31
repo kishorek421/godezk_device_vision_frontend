@@ -1,0 +1,12 @@
+{
+  "name": "godezk-device-vision-frontend",
+  "version": "1.0.0",
+  "description": "GoDezk Device Vision Frontend",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p dist && cp src/index.html dist/index.html"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
