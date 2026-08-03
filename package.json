@@ -1,10 +1,11 @@
 {
-  "name": "godezk-device-vision-frontend",
+  "name": "godezk-telemetry-dashboard-frontend",
   "version": "1.0.0",
-  "description": "GoDezk Device Vision Frontend",
+  "description": "Telemetry Dashboard Frontend — Executions list and analytics views",
   "private": true,
   "scripts": {
-    "build": "mkdir -p dist && cp src/index.html dist/index.html"
+    "build": "node build.js",
+    "start": "npx serve dist"
   },
   "engines": {
     "node": ">=20"

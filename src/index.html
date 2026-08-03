@@ -3,10 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GoDezk Device Vision</title>
+  <title>Telemetry Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>GoDezk Device Vision Frontend</h1>
-  <p>Placeholder frontend build.</p>
+  <header class="topbar">
+    <h1>Telemetry Dashboard</h1>
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-tab="executions">Executions</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <div class="sub-tabs">
+      <button class="sub-tab active" data-view="list">List View</button>
+      <button class="sub-tab" data-view="analytics">Analytics View</button>
+    </div>
+
+    <section id="list-view" class="view active">
+      <div class="filters">
+        <div class="field">
+          <label for="list-from">From</label>
+          <input type="date" id="list-from">
+        </div>
+        <div class="field">
+          <label for="list-to">To</label>
+          <input type="date" id="list-to">
+        </div>
+        <button id="list-apply" class="btn primary">Apply</button>
+        <button id="list-reset" class="btn">Reset</button>
+      </div>
+      <div class="summary" id="list-summary"></div>
+      <table class="data-table" id="executions-table">
+        <thead>
+          <tr>
+            <th>Execution ID</th>
+            <th>Catalog</th>
+            <th>Status</th>
+            <th>Started</th>
+            <th>Duration</th>
+            <th>Component total</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="pagination" id="list-pagination"></div>
+    </section>
+
+    <section id="analytics-view" class="view">
+      <div class="filters">
+        <div class="field time-presets">
+          <button class="time-btn" data-ms="1000">1 sec</button>
+          <button class="time-btn" data-ms="60000">1 min</button>
+          <button class="time-btn" data-ms="600000">10 min</button>
+          <button class="time-btn" data-ms="36000000">10 hours</button>
+          <button class="time-btn" data-ms="864000000">10 days</button>
+        </div>
+        <div class="field custom-time">
+          <label for="analytics-time">Custom window</label>
+          <input type="text" id="analytics-time" placeholder="1m, 10h, 5d or 5000">
+        </div>
+        <button id="analytics-apply" class="btn primary">Load analytics</button>
+      </div>
+      <div class="summary" id="analytics-summary"></div>
+      <div id="analytics-chart" class="chart"></div>
+      <table class="data-table" id="analytics-table">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Total time</th>
+            <th>Average</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>Count</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
