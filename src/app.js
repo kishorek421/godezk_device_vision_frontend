@@ -27,9 +27,9 @@ function formatComponent(name) {
 
 function statusClass(status) {
   const s = String(status || '').toLowerCase();
-  if (['completed', 'success'].includes(s)) return 'completed';
-  if (['failed', 'error'].includes(s)) return 'failed';
-  if (s === 'running') return 'running';
+  if (['completed', 'success', 'queued'].includes(s)) return 'completed';
+  if (['failed', 'error', 'dropped'].includes(s)) return 'failed';
+  if (['running', 'active', 'throttled'].includes(s)) return 'running';
   return '';
 }
 
@@ -57,19 +57,14 @@ async function api(path, params = {}) {
   return res.json();
 }
 
-let listState = { page: 1, page_size: 25 };
-
-async function loadList(page = 1) {
-  listState.page = page;
+async function loadList() {
   const params = {
     org_id: 'default',
     date_from: $('#list-from').value || '',
-    date_to: $('#list-to').value || '',
-    page,
-    page_size: listState.page_size
+    date_to: $('#list-to').value || ''
   };
   try {
-    const data = await api('/api/executions', params);
+    const data = await api('/api/deployments', params);
     renderList(data);
   } catch (err) {
     $('#list-summary').innerHTML = `<div class="card"><div class="value">Error</div><div class="label">${err.message}</div></div>`;
@@ -77,34 +72,70 @@ async function loadList(page = 1) {
 }
 
 function renderList(data) {
-  const rows = data.executions || [];
-  const tbody = $('#executions-table tbody');
-  tbody.innerHTML = '';
+  const deployments = data.deployments || [];
+  const container = $('#deployments-container');
+  container.innerHTML = '';
 
-  rows.forEach((row) => {
-    const total = sumComponents(row.component_breakdown);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${row.human_id || row.id}</td>
-      <td>${row.catalog_name || '-'}</td>
-      <td><span class="status ${statusClass(row.status)}">${row.status}</span></td>
-      <td>${formatDate(row.started_at)}</td>
-      <td>${humanize(row.duration_ms)}</td>
-      <td>${humanize(total)}</td>
-      <td><button class="toggle" data-id="${row.id}">Components</button></td>
+  const totalFrames = deployments.reduce((s, d) => s + (d.frame_count || 0), 0);
+  $('#list-summary').innerHTML = `
+    <div class="card"><div class="value">${deployments.length}</div><div class="label">Running deployments</div></div>
+    <div class="card"><div class="value">${totalFrames}</div><div class="label">Frames (last 10 each)</div></div>
+  `;
+
+  if (!deployments.length) {
+    container.innerHTML = '<p class="card">No running deployments found.</p>';
+    return;
+  }
+
+  deployments.forEach((dep) => {
+    const section = document.createElement('div');
+    section.className = 'deployment-block';
+
+    const frames = dep.frames || [];
+    const frameRows = frames.map((f, idx) => {
+      const bd = f.component_breakdown || {};
+      const items = Object.entries(bd)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<div class="detail-item"><span>${formatComponent(k)}</span><strong>${humanize(v)}</strong></div>`)
+        .join('') || '<div class="detail-item">No component data</div>';
+      return `
+        <tr>
+          <td>${f.frame_id}</td>
+          <td>${f.device_id || '-'}</td>
+          <td>${f.event_type || '-'}</td>
+          <td><span class="status ${statusClass(f.decision)}">${f.decision || '-'}</span></td>
+          <td>${formatDate(f.started_at)}</td>
+          <td>${humanize(f.total_ms)}</td>
+          <td><button class="toggle" data-id="${dep.id}-${idx}">Components</button></td>
+        </tr>
+        <tr class="detail-row" data-for="${dep.id}-${idx}">
+          <td colspan="7"><div class="detail-grid">${items}</div></td>
+        </tr>
+      `;
+    }).join('');
+
+    section.innerHTML = `
+      <div class="deployment-header">
+        <h3>${dep.workflow_name || dep.id}</h3>
+        <span class="status ${statusClass(dep.status)}">${dep.status}</span>
+        <span class="meta">Devices: ${(dep.device_ids || []).join(', ') || '-'} · Deployed: ${formatDate(dep.deployed_at)} · Frames total: ${humanize(sumComponents(dep.component_totals))}</span>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Frame</th>
+            <th>Device</th>
+            <th>Event type</th>
+            <th>Decision</th>
+            <th>Received</th>
+            <th>Total time</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${frameRows || '<tr><td colspan="7">No frames captured yet for this deployment.</td></tr>'}</tbody>
+      </table>
     `;
-    tbody.appendChild(tr);
-
-    const bd = row.component_breakdown || {};
-    const items = Object.entries(bd)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `<div class="detail-item"><span>${formatComponent(k)}</span><strong>${humanize(v)}</strong></div>`)
-      .join('') || '<div class="detail-item">No component data</div>';
-    const detail = document.createElement('tr');
-    detail.className = 'detail-row';
-    detail.dataset.for = row.id;
-    detail.innerHTML = `<td colspan="7"><div class="detail-grid">${items}</div></td>`;
-    tbody.appendChild(detail);
+    container.appendChild(section);
   });
 
   $$('.toggle').forEach((btn) => {
@@ -114,32 +145,6 @@ function renderList(data) {
       if (row) row.classList.toggle('open');
     });
   });
-
-  const total = data.total_count || 0;
-  const pages = Math.ceil(total / listState.page_size) || 1;
-  const start = total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
-  const end = Math.min(start + rows.length - 1, total);
-  $('#list-summary').innerHTML = `<div class="card"><div class="value">${total}</div><div class="label">Total executions</div></div>`;
-
-  const pg = $('#list-pagination');
-  pg.innerHTML = '';
-  if (data.page > 1) {
-    const prev = document.createElement('button');
-    prev.className = 'btn';
-    prev.textContent = 'Previous';
-    prev.onclick = () => loadList(data.page - 1);
-    pg.appendChild(prev);
-  }
-  const info = document.createElement('span');
-  info.textContent = `${start}-${end} of ${total}`;
-  pg.appendChild(info);
-  if (data.page < pages) {
-    const next = document.createElement('button');
-    next.className = 'btn primary';
-    next.textContent = 'Next';
-    next.onclick = () => loadList(data.page + 1);
-    pg.appendChild(next);
-  }
 }
 
 async function loadAnalytics() {
@@ -160,12 +165,11 @@ async function loadAnalytics() {
 function renderAnalytics(data) {
   const s = data.executions_summary || {};
   $('#analytics-summary').innerHTML = `
-    <div class="card"><div class="value">${s.total || 0}</div><div class="label">Total</div></div>
-    <div class="card"><div class="value">${s.completed || 0}</div><div class="label">Completed</div></div>
-    <div class="card"><div class="value">${s.failed || 0}</div><div class="label">Failed</div></div>
-    <div class="card"><div class="value">${s.running || 0}</div><div class="label">Running</div></div>
-    <div class="card"><div class="value">${humanize(s.avg_duration_ms)}</div><div class="label">Avg duration</div></div>
-    <div class="card"><div class="value">${humanize(s.total_duration_ms)}</div><div class="label">Total duration</div></div>
+    <div class="card"><div class="value">${s.total || 0}</div><div class="label">Frames</div></div>
+    <div class="card"><div class="value">${s.completed || 0}</div><div class="label">Completed workflows</div></div>
+    <div class="card"><div class="value">${s.running || 0}</div><div class="label">Running deployments</div></div>
+    <div class="card"><div class="value">${humanize(s.avg_duration_ms)}</div><div class="label">Avg frame time</div></div>
+    <div class="card"><div class="value">${humanize(s.total_duration_ms)}</div><div class="label">Total time</div></div>
   `;
 
   const totals = data.component_totals || [];
@@ -206,7 +210,7 @@ function renderAnalytics(data) {
 function setActiveTab(view) {
   $$('.sub-tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `${view}-view`));
-  if (view === 'list') loadList(1);
+  if (view === 'list') loadList();
   else loadAnalytics();
 }
 
@@ -217,11 +221,11 @@ function init() {
   $('#list-from').value = weekAgo.toISOString().split('T')[0];
 
   $$('.sub-tab').forEach((t) => t.addEventListener('click', () => setActiveTab(t.dataset.view)));
-  $('#list-apply').addEventListener('click', () => loadList(1));
+  $('#list-apply').addEventListener('click', loadList);
   $('#list-reset').addEventListener('click', () => {
     $('#list-from').value = '';
     $('#list-to').value = '';
-    loadList(1);
+    loadList();
   });
   $$('.time-btn').forEach((btn) => btn.addEventListener('click', (e) => {
     $$('.time-btn').forEach((b) => b.classList.remove('active'));
@@ -229,7 +233,7 @@ function init() {
   }));
   $('#analytics-apply').addEventListener('click', loadAnalytics);
 
-  loadList(1);
+  loadList();
 }
 
 document.addEventListener('DOMContentLoaded', init);
