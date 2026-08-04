@@ -1,6 +1,5 @@
-const API_BASE = (window.__ENV__ && 'apiBase' in window.__ENV__)
-  ? window.__ENV__.apiBase
-  : 'http://localhost:3010';
+const env = window.__ENV__ || {};
+const API_BASE = 'apiBase' in env ? env.apiBase : (window.location.protocol === 'file:' ? 'http://localhost:3010' : '');
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -16,27 +15,39 @@ function humanize(ms) {
 function formatDate(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 function formatComponent(name) {
   return String(name || '')
     .split('_')
-    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .map((w) => w[0] ? w[0].toUpperCase() + w.slice(1) : '')
     .join(' ');
 }
 
 function statusClass(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'completed' || s === 'success') return 'completed';
-  if (s === 'failed' || s === 'error') return 'failed';
+  if (['completed', 'success'].includes(s)) return 'completed';
+  if (['failed', 'error'].includes(s)) return 'failed';
   if (s === 'running') return 'running';
   return '';
 }
 
 function sumComponents(breakdown) {
   return Object.values(breakdown || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+}
+
+function parseTimeWindow(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*([smhd])$/i);
+  if (m) {
+    const n = parseFloat(m[1]);
+    const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2].toLowerCase()];
+    return Math.round(n * mult);
+  }
+  const n = Number(s);
+  return Number.isNaN(n) ? '' : Math.round(n);
 }
 
 async function api(path, params = {}) {
@@ -50,11 +61,13 @@ let listState = { page: 1, page_size: 25 };
 
 async function loadList(page = 1) {
   listState.page = page;
-  const from = $('#list-from').value;
-  const to = $('#list-to').value;
-  const params = { page, page_size: listState.page_size, org_id: 'default' };
-  if (from) params.date_from = from;
-  if (to) params.date_to = to;
+  const params = {
+    org_id: 'default',
+    date_from: $('#list-from').value || '',
+    date_to: $('#list-to').value || '',
+    page,
+    page_size: listState.page_size
+  };
   try {
     const data = await api('/api/executions', params);
     renderList(data);
@@ -82,14 +95,14 @@ function renderList(data) {
     `;
     tbody.appendChild(tr);
 
-    const detail = document.createElement('tr');
-    detail.className = 'detail-row';
-    detail.dataset.for = row.id;
     const bd = row.component_breakdown || {};
     const items = Object.entries(bd)
       .sort((a, b) => b[1] - a[1])
       .map(([k, v]) => `<div class="detail-item"><span>${formatComponent(k)}</span><strong>${humanize(v)}</strong></div>`)
       .join('') || '<div class="detail-item">No component data</div>';
+    const detail = document.createElement('tr');
+    detail.className = 'detail-row';
+    detail.dataset.for = row.id;
     detail.innerHTML = `<td colspan="7"><div class="detail-grid">${items}</div></td>`;
     tbody.appendChild(detail);
   });
@@ -104,13 +117,9 @@ function renderList(data) {
 
   const total = data.total_count || 0;
   const pages = Math.ceil(total / listState.page_size) || 1;
-  const start = (data.page - 1) * data.page_size + 1;
+  const start = total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = Math.min(start + rows.length - 1, total);
-  $('#list-summary').innerHTML = `
-    <div class="card"><div class="value">${total}</div><div class="label">Total executions</div></div>
-    <div class="card"><div class="value">${rows.length}</div><div class="label">This page</div></div>
-    <div class="card"><div class="value">${data.page} / ${pages}</div><div class="label">Page</div></div>
-  `;
+  $('#list-summary').innerHTML = `<div class="card"><div class="value">${total}</div><div class="label">Total executions</div></div>`;
 
   const pg = $('#list-pagination');
   pg.innerHTML = '';
@@ -134,11 +143,10 @@ function renderList(data) {
 }
 
 async function loadAnalytics() {
-  let tw = $('#analytics-time').value.trim();
+  const custom = $('#analytics-time').value.trim();
   const active = $('.time-btn.active');
-  if (!tw && active) tw = active.dataset.ms;
-  const params = {};
-  if (tw) params.time_window = tw;
+  const tw = custom ? parseTimeWindow(custom) : (active ? active.dataset.ms : '');
+  const params = { org_id: 'default', time_window: String(tw) };
   try {
     const data = await api('/api/analytics', params);
     renderAnalytics(data);
@@ -150,18 +158,18 @@ async function loadAnalytics() {
 }
 
 function renderAnalytics(data) {
-  const summary = data.executions_summary || {};
+  const s = data.executions_summary || {};
   $('#analytics-summary').innerHTML = `
-    <div class="card"><div class="value">${summary.total || 0}</div><div class="label">Total executions</div></div>
-    <div class="card"><div class="value">${summary.completed || 0}</div><div class="label">Completed</div></div>
-    <div class="card"><div class="value">${summary.failed || 0}</div><div class="label">Failed</div></div>
-    <div class="card"><div class="value">${summary.running || 0}</div><div class="label">Running</div></div>
-    <div class="card"><div class="value">${humanize(summary.avg_duration_ms)}</div><div class="label">Avg duration</div></div>
-    <div class="card"><div class="value">${humanize(summary.total_duration_ms)}</div><div class="label">Total duration</div></div>
+    <div class="card"><div class="value">${s.total || 0}</div><div class="label">Total</div></div>
+    <div class="card"><div class="value">${s.completed || 0}</div><div class="label">Completed</div></div>
+    <div class="card"><div class="value">${s.failed || 0}</div><div class="label">Failed</div></div>
+    <div class="card"><div class="value">${s.running || 0}</div><div class="label">Running</div></div>
+    <div class="card"><div class="value">${humanize(s.avg_duration_ms)}</div><div class="label">Avg duration</div></div>
+    <div class="card"><div class="value">${humanize(s.total_duration_ms)}</div><div class="label">Total duration</div></div>
   `;
 
   const totals = data.component_totals || [];
-  const max = totals.reduce((m, c) => Math.max(m, c.total_ms), 0) || 1;
+  const max = totals.reduce((m, c) => Math.max(m, Number(c.total_ms) || 0), 0) || 1;
   const chart = $('#analytics-chart');
   chart.innerHTML = '';
   if (totals.length === 0) {
@@ -172,7 +180,7 @@ function renderAnalytics(data) {
       row.className = 'bar-row';
       row.innerHTML = `
         <div class="bar-label">${formatComponent(c.component)}</div>
-        <div class="bar-track"><div class="bar-fill" style="width: ${(c.total_ms / max) * 100}%"></div></div>
+        <div class="bar-track"><div class="bar-fill" style="width: ${((Number(c.total_ms) || 0) / max) * 100}%"></div></div>
         <div class="bar-value">${humanize(c.total_ms)}</div>
       `;
       chart.appendChild(row);
@@ -208,29 +216,20 @@ function init() {
   $('#list-to').value = today.toISOString().split('T')[0];
   $('#list-from').value = weekAgo.toISOString().split('T')[0];
 
-  $$('.sub-tab').forEach((t) => {
-    t.addEventListener('click', () => setActiveTab(t.dataset.view));
-  });
-
+  $$('.sub-tab').forEach((t) => t.addEventListener('click', () => setActiveTab(t.dataset.view)));
   $('#list-apply').addEventListener('click', () => loadList(1));
   $('#list-reset').addEventListener('click', () => {
     $('#list-from').value = '';
     $('#list-to').value = '';
     loadList(1);
   });
-
-  $$('.time-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      $$('.time-btn').forEach((b) => b.classList.remove('active'));
-      e.target.classList.add('active');
-      $('#analytics-time').value = e.target.dataset.ms;
-    });
-  });
-
+  $$('.time-btn').forEach((btn) => btn.addEventListener('click', (e) => {
+    $$('.time-btn').forEach((b) => b.classList.remove('active'));
+    e.target.classList.add('active');
+  }));
   $('#analytics-apply').addEventListener('click', loadAnalytics);
-  $('#analytics-time').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAnalytics(); });
 
-  setActiveTab('list');
+  loadList(1);
 }
 
 document.addEventListener('DOMContentLoaded', init);
