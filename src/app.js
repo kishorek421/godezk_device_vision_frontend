@@ -1,4 +1,6 @@
-const API_BASE = (window.__ENV__ && window.__ENV__.apiBase) || 'http://localhost:3010';
+const API_BASE = (window.__ENV__ && 'apiBase' in window.__ENV__)
+  ? window.__ENV__.apiBase
+  : 'http://localhost:3010';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
